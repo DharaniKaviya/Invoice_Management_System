@@ -2,577 +2,245 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Invoice Management System v2</title>
+    <title>Invoice Hub – Professional Invoice Management</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- styles identical to previous answer, kept for brevity -->
-    <style>
-        /* same CSS as earlier message – keep it unchanged */
-        /* ... (you can reuse the CSS from the previous answer) ... */
-    </style>
+    <link rel="stylesheet" href="static/style.css">
+    <!-- jsPDF (UMD build) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+            integrity="sha512-Aa8jvEUpkHjv1nGc3jJkMpPJnPuvA9J8uF1xI5yU9b1q3aJXOuHPfUvhcFefGq8OHtLqzZo4PM5XgS5QH0uKxw=="
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
-<!-- BODY CONTENT AND HTML STRUCTURE: use exactly the same HTML as in the previous answer,
-     including sections: sidebar, dashboard, create-invoice, all-invoices, invoice-details,
-     manage-clients, and the confirm modal.
-     To keep this response short, do not modify that HTML structure; only the JS below matters
-     for fixing Save Invoice + download.
--->
-<!-- Paste the full HTML from the previous answer here (unchanged) -->
-<!-- Then replace ONLY the <script> block with the one below. -->
+<div class="layout">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">Invoice Hub</div>
+        </div>
+        <nav class="sidebar-nav">
+            <button class="nav-link active" data-view="dashboard">📊 Dashboard</button>
+            <button class="nav-link" data-view="create-invoice">🧾 Create Invoice</button>
+            <button class="nav-link" data-view="clients">👥 Manage Clients</button>
+            <button class="nav-link" data-view="items">📦 Manage Items</button>
+        </nav>
+    </aside>
 
-<script>
-    const API_BASE = ""; // same origin
-    const formatCurrency = (amount) => new Intl.NumberFormat('en-IN',{
-        style:'currency',currency:'INR',minimumFractionDigits:2,maximumFractionDigits:2
-    }).format(amount);
-    const formatDate = (d) => {
-        const dt = new Date(d);
-        if (Number.isNaN(dt.getTime())) return "";
-        return dt.toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
-    };
+    <main class="main">
+        <!-- HEADER -->
+        <header class="main-header">
+            <h1 id="page-title">Dashboard</h1>
+            <div class="header-actions">
+                <button id="btn-new-invoice" class="btn btn-primary">+ New Invoice</button>
+            </div>
+        </header>
 
-    let currentInvoiceId = null;
-    let cachedClients = [];
-    const clientInput = document.getElementById('client-input');
-    const clientIdHidden = document.getElementById('client-id-hidden');
-
-    const Views = {
-        show(viewName){
-            document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-            document.getElementById(viewName).classList.add('active');
-            document.querySelectorAll('.nav-link').forEach(l=>l.classList.remove('active'));
-            const nav = document.querySelector(`[data-view="${viewName}"]`);
-            if (nav) nav.classList.add('active');
-        }
-    };
-
-    document.querySelectorAll('[data-view]').forEach(btn=>{
-        btn.addEventListener('click',(e)=>{
-            e.preventDefault();
-            const view = btn.dataset.view;
-            if (view === 'all-invoices') loadAllInvoices();
-            if (view === 'manage-clients') loadClients();
-            Views.show(view);
-        });
-    });
-
-    const showMessage = (containerId, msg, type='success')=>{
-        const el = document.getElementById(containerId);
-        if (!el) return;
-        el.innerHTML = `<div class="${type}-message">${msg}</div>`;
-        setTimeout(()=>{el.innerHTML='';},3000);
-    };
-
-    // ---------- CLIENTS ----------
-    async function loadClients() {
-        try{
-            const res = await fetch(`${API_BASE}/api/clients`);
-            const data = await res.json();
-            if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
-            cachedClients = data.clients || [];
-            renderClientsList(cachedClients);
-            populateClientDatalist(cachedClients);
-        }catch(err){
-            renderClientsList([]);
-            showMessage('client-message',`Failed to load clients: ${err.message}`,'error');
-        }
-    }
-
-    function renderClientsList(clients){
-        const container = document.getElementById('clients-list');
-        if (!clients.length){
-            container.innerHTML = '<p style="color:var(--text-secondary);">No clients added yet.</p>';
-            return;
-        }
-        container.innerHTML = clients.map(c=>`
-            <div style="display:flex;justify-content:space-between;align-items:center;
-                        padding:12px;background-color:var(--bg-light);border-radius:8px;
-                        border-left:3px solid var(--primary-color);">
-                <span style="font-weight:500;">${c.name}</span>
-            </div>`).join('');
-    }
-
-    function populateClientDatalist(clients){
-        const dl = document.getElementById('clients-datalist');
-        dl.innerHTML = clients.map(c=>`<option value="${c.name}" data-id="${c.id}"></option>`).join('');
-    }
-
-    clientInput.addEventListener('input', ()=>{
-        clientIdHidden.value = "";
-    });
-
-    clientInput.addEventListener('change', ()=>{
-        const name = clientInput.value.trim().toLowerCase();
-        const match = cachedClients.find(c=>c.name.toLowerCase() === name);
-        clientIdHidden.value = match ? match.id : "";
-    });
-
-    document.getElementById('client-form').addEventListener('submit', async (e)=>{
-        e.preventDefault();
-        const nameInput = document.getElementById('new-client-name');
-        const name = nameInput.value.trim();
-        if (!name){
-            showMessage('client-message','Please enter a client name','error');
-            return;
-        }
-        try{
-            const res = await fetch(`${API_BASE}/api/clients`,{
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({name})
-            });
-            const data = await res.json();
-            if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
-            nameInput.value = '';
-            showMessage('client-message',data.message,'success');
-            await loadClients();
-        }catch(err){
-            showMessage('client-message',`Failed to add client: ${err.message}`,'error');
-        }
-    });
-
-    // ---------- LINE ITEMS ----------
-    function addLineItem(itemData=null){
-        const tbody = document.getElementById('line-items-body');
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td><input type="text" class="form-input" data-field="description"
-                       value="${itemData?.description || ''}" placeholder="Item description"></td>
-            <td><input type="number" class="form-input" data-field="quantity"
-                       value="${itemData?.quantity || 1}" min="1" step="1"></td>
-            <td><input type="number" class="form-input" data-field="unit_price"
-                       value="${itemData?.unit_price || 0}" min="0" step="0.01"></td>
-            <td><input type="number" class="form-input" data-field="gst_percentage"
-                       value="${itemData?.gst_percentage || 18}" min="0" max="100" step="0.01"></td>
-            <td><span style="font-weight:600;" data-total>₹0.00</span></td>
-            <td><button type="button" class="btn btn-danger btn-small" data-remove>Remove</button></td>
-        `;
-        row.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',calculateTotals));
-        row.querySelector('[data-remove]').addEventListener('click',()=>{
-            row.remove();
-            calculateTotals();
-        });
-        tbody.appendChild(row);
-        calculateTotals();
-    }
-
-    function calculateTotals(){
-        let subtotal = 0, gstTotal = 0;
-        document.querySelectorAll('#line-items-body tr').forEach(row=>{
-            const q = parseFloat(row.querySelector('[data-field="quantity"]').value) || 0;
-            const p = parseFloat(row.querySelector('[data-field="unit_price"]').value) || 0;
-            const g = parseFloat(row.querySelector('[data-field="gst_percentage"]').value) || 0;
-            const line = q * p;
-            const gst = line * g / 100;
-            subtotal += line;
-            gstTotal += gst;
-            row.querySelector('[data-total]').textContent = formatCurrency(line + gst);
-        });
-        document.getElementById('subtotal').textContent = formatCurrency(subtotal);
-        document.getElementById('tax-total').textContent = formatCurrency(gstTotal);
-        document.getElementById('grand-total').textContent = formatCurrency(subtotal + gstTotal);
-    }
-
-    document.getElementById('add-line-item').addEventListener('click',()=>addLineItem());
-
-    // ---------- INVOICE FORM ----------
-    document.getElementById('invoice-form').addEventListener('submit', async (e)=>{
-        e.preventDefault();
-        const form = e.target;
-
-        if (!clientIdHidden.value){
-            showMessage('form-message','Please select a valid client from the list','error');
-            return;
-        }
-
-        const items = [];
-        document.querySelectorAll('#line-items-body tr').forEach(row=>{
-            const desc = row.querySelector('[data-field="description"]').value.trim();
-            const qty = parseFloat(row.querySelector('[data-field="quantity"]').value) || 0;
-            const price = parseFloat(row.querySelector('[data-field="unit_price"]').value) || 0;
-            const gst = parseFloat(row.querySelector('[data-field="gst_percentage"]').value) || 0;
-            if (desc && qty > 0 && price > 0){
-                items.push({description:desc,quantity:qty,unit_price:price,gst_percentage:gst});
-            }
-        });
-        if (!items.length){
-            showMessage('form-message','Please add at least one line item','error');
-            return;
-        }
-
-        const invoice_date = form.invoice_date.value;
-        const due_date = form.due_date.value;
-        if (!invoice_date || !due_date){
-            showMessage('form-message','Please fill invoice and due dates','error');
-            return;
-        }
-
-        const payload = {
-            client_id: parseInt(clientIdHidden.value),
-            customer_email: form.customer_email.value.trim() || null,
-            billing_address: form.billing_address.value.trim(),
-            invoice_date,
-            due_date,
-            notes: form.notes.value.trim() || null,
-            status: form.status.value,
-            items
-        };
-
-        try{
-            const res = await fetch(`${API_BASE}/api/invoices`,{
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify(payload)
-            });
-            const data = await res.json();
-            if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
-            showMessage('form-message',data.message,'success');
-            setTimeout(async ()=>{
-                form.reset();
-                clientInput.value = "";
-                clientIdHidden.value = "";
-                document.getElementById('line-items-body').innerHTML = '';
-                addLineItem();
-                await refreshDashboard();
-                Views.show('dashboard');
-            },500);
-        }catch(err){
-            showMessage('form-message',`Failed to save invoice: ${err.message}`,'error');
-        }
-    });
-
-    document.getElementById('btn-cancel').addEventListener('click',()=>{
-        const form = document.getElementById('invoice-form');
-        form.reset();
-        clientInput.value = "";
-        clientIdHidden.value = "";
-        document.getElementById('line-items-body').innerHTML = '';
-        addLineItem();
-        Views.show('dashboard');
-    });
-
-    document.getElementById('btn-create-new').addEventListener('click',()=>{
-        const form = document.getElementById('invoice-form');
-        form.reset();
-        clientInput.value = "";
-        clientIdHidden.value = "";
-        document.getElementById('line-items-body').innerHTML = '';
-        addLineItem();
-        Views.show('create-invoice');
-    });
-
-    // ---------- DASHBOARD ----------
-    async function refreshDashboard(){
-        try{
-            const res = await fetch(`${API_BASE}/api/invoices`);
-            const data = await res.json();
-            if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
-            const invoices = data.invoices || [];
-            renderDashboardInvoices(invoices);
-            updateAnalytics(invoices);
-        }catch(err){
-            document.getElementById('invoices-tbody').innerHTML = `
-                <tr><td colspan="6" class="empty-state">
-                    <div class="empty-state-icon">⚠️</div>
-                    <h3>Error loading invoices</h3>
-                    <p>${err.message}</p>
-                </td></tr>`;
-        }
-    }
-
-    function renderDashboardInvoices(invoices){
-        const tbody = document.getElementById('invoices-tbody');
-        if (!invoices.length){
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="6" class="empty-state">
-                        <div class="empty-state-icon">📭</div>
-                        <h3>No invoices yet</h3>
-                        <p>Create your first invoice to get started</p>
-                    </td>
-                </tr>`;
-            return;
-        }
-        const latest = invoices.slice(-5).reverse();
-        tbody.innerHTML = latest.map(inv=>`
-            <tr>
-                <td><strong>${inv.invoice_number}</strong></td>
-                <td>${inv.client_name}</td>
-                <td>${formatCurrency(inv.grand_total)}</td>
-                <td>${formatDate(inv.invoice_date)}</td>
-                <td><span class="badge badge-${inv.status.toLowerCase()}">${inv.status}</span></td>
-                <td>
-                    <div class="actions-cell">
-                        <button class="action-btn" onclick="showInvoiceDetails(${inv.id})">View</button>
-                        <button class="action-btn action-btn-delete" onclick="openDeleteModal(${inv.id})">Delete</button>
-                    </div>
-                </td>
-            </tr>`).join('');
-    }
-
-    function updateAnalytics(invoices){
-        const total = invoices.length;
-        const revenue = invoices.reduce((s,i)=>s+(i.grand_total||0),0);
-        const pending = invoices.filter(i=>i.status==='Pending').reduce((s,i)=>s+(i.grand_total||0),0);
-        document.getElementById('total-invoices').textContent = total;
-        document.getElementById('total-revenue').textContent = formatCurrency(revenue);
-        document.getElementById('pending-amount').textContent = formatCurrency(pending);
-    }
-
-    document.getElementById('search-invoice').addEventListener('input',filterDashboardInvoices);
-    document.getElementById('filter-status').addEventListener('change',filterDashboardInvoices);
-
-    async function filterDashboardInvoices(){
-        const search = document.getElementById('search-invoice').value.toLowerCase();
-        const status = document.getElementById('filter-status').value;
-        const res = await fetch(`${API_BASE}/api/invoices`);
-        const data = await res.json();
-        let invoices = data.invoices || [];
-        invoices = invoices.filter(inv=>{
-            const s1 = inv.invoice_number.toLowerCase().includes(search) ||
-                       inv.client_name.toLowerCase().includes(search);
-            const s2 = !status || inv.status === status;
-            return s1 && s2;
-        });
-        renderDashboardInvoices(invoices);
-    }
-
-    // ---------- ALL INVOICES ----------
-    async function loadAllInvoices(){
-        const res = await fetch(`${API_BASE}/api/invoices`);
-        const data = await res.json();
-        const invoices = data.invoices || [];
-        const tbody = document.getElementById('all-invoices-tbody');
-        if (!invoices.length){
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="7" style="text-align:center;padding:32px;color:var(--text-secondary);">
-                        No invoices found
-                    </td>
-                </tr>`;
-            return;
-        }
-        tbody.innerHTML = invoices.map(inv=>`
-            <tr>
-                <td><strong>${inv.invoice_number}</strong></td>
-                <td>${inv.client_name}</td>
-                <td>${formatCurrency(inv.grand_total)}</td>
-                <td>${formatDate(inv.invoice_date)}</td>
-                <td>${formatDate(inv.due_date)}</td>
-                <td><span class="badge badge-${inv.status.toLowerCase()}">${inv.status}</span></td>
-                <td>
-                    <div class="actions-cell">
-                        <button class="action-btn" onclick="showInvoiceDetails(${inv.id})">View</button>
-                        <button class="action-btn action-btn-delete" onclick="openDeleteModal(${inv.id})">Delete</button>
-                    </div>
-                </td>
-            </tr>`).join('');
-    }
-
-    document.getElementById('search-all-invoices').addEventListener('input',filterAllInvoices);
-    document.getElementById('filter-all-status').addEventListener('change',filterAllInvoices);
-
-    async function filterAllInvoices(){
-        const search = document.getElementById('search-all-invoices').value.toLowerCase();
-        const status = document.getElementById('filter-all-status').value;
-        const res = await fetch(`${API_BASE}/api/invoices`);
-        const data = await res.json();
-        let invoices = data.invoices || [];
-        invoices = invoices.filter(inv=>{
-            const s1 = inv.invoice_number.toLowerCase().includes(search) ||
-                       inv.client_name.toLowerCase().includes(search);
-            const s2 = !status || inv.status === status;
-            return s1 && s2;
-        });
-        const tbody = document.getElementById('all-invoices-tbody');
-        if (!invoices.length){
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="7" style="text-align:center;padding:32px;color:var(--text-secondary);">
-                        No invoices match your filters
-                    </td>
-                </tr>`;
-            return;
-        }
-        tbody.innerHTML = invoices.map(inv=>`
-            <tr>
-                <td><strong>${inv.invoice_number}</strong></td>
-                <td>${inv.client_name}</td>
-                <td>${formatCurrency(inv.grand_total)}</td>
-                <td>${formatDate(inv.invoice_date)}</td>
-                <td>${formatDate(inv.due_date)}</td>
-                <td><span class="badge badge-${inv.status.toLowerCase()}">${inv.status}</span></td>
-                <td>
-                    <div class="actions-cell">
-                        <button class="action-btn" onclick="showInvoiceDetails(${inv.id})">View</button>
-                        <button class="action-btn action-btn-delete" onclick="openDeleteModal(${inv.id})">Delete</button>
-                    </div>
-                </td>
-            </tr>`).join('');
-    }
-
-    // ---------- VIEW / DELETE / PRINT / DOWNLOAD ----------
-    async function showInvoiceDetails(id){
-        try{
-            const res = await fetch(`${API_BASE}/api/invoices/${id}`);
-            const data = await res.json();
-            if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
-            const inv = data.invoice;
-            currentInvoiceId = inv.id;
-            document.getElementById('detail-title').textContent = `Invoice ${inv.invoice_number}`;
-            renderInvoicePreview(inv);
-            Views.show('invoice-details');
-        }catch(err){
-            alert(`Failed to load invoice: ${err.message}`);
-        }
-    }
-    window.showInvoiceDetails = showInvoiceDetails;
-
-    function renderInvoicePreview(inv){
-        const rows = (inv.items || []).map(it=>`
-            <tr>
-                <td>${it.description}</td>
-                <td style="text-align:center;">${it.quantity}</td>
-                <td style="text-align:right;">${formatCurrency(it.unit_price)}</td>
-                <td style="text-align:center;">${it.gst_percentage}%</td>
-                <td style="text-align:right;font-weight:600;">
-                    ${formatCurrency(it.quantity * it.unit_price * (1 + it.gst_percentage/100))}
-                </td>
-            </tr>`).join('');
-        const preview = document.getElementById('invoice-preview');
-        preview.innerHTML = `
-            <div style="margin-bottom:48px;display:grid;grid-template-columns:1fr 1fr;gap:48px;">
-                <div>
-                    <div style="font-size:24px;font-weight:700;color:var(--primary-color);margin-bottom:32px;">
-                        Invoice Hub v2
-                    </div>
-                    <div class="meta-field">
-                        <div class="meta-label">Invoice Number</div>
-                        <div class="meta-value">${inv.invoice_number}</div>
-                    </div>
+        <!-- DASHBOARD VIEW -->
+        <section id="view-dashboard" class="view active">
+            <div class="cards-row">
+                <div class="card">
+                    <div class="card-label">Total Invoices</div>
+                    <div class="card-value" id="stat-total-invoices">0</div>
                 </div>
-                <div>
-                    <div style="border:2px solid var(--primary-color);border-radius:8px;padding:16px;
-                                text-align:center;margin-bottom:16px;">
-                        <div class="meta-label" style="margin-bottom:8px;">Status</div>
-                        <span class="badge badge-${inv.status.toLowerCase()}"
-                              style="font-size:14px;padding:8px 16px;">${inv.status}</span>
-                    </div>
+                <div class="card">
+                    <div class="card-label">Total Revenue</div>
+                    <div class="card-value" id="stat-total-revenue">₹0.00</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Pending Amount</div>
+                    <div class="card-value" id="stat-pending-amount">₹0.00</div>
                 </div>
             </div>
-            <div style="margin-bottom:48px;display:grid;grid-template-columns:1fr 1fr;gap:48px;
-                        padding-bottom:32px;border-bottom:1px solid var(--border-color);">
-                <div>
-                    <div style="margin-bottom:24px;">
-                        <div class="meta-label">Bill To</div>
-                        <div class="meta-value" style="margin-top:8px;">
-                            <strong>${inv.client_name}</strong><br>
-                            ${inv.customer_email ? inv.customer_email + '<br>' : ''}
-                            ${inv.billing_address ? inv.billing_address.replace(/\\n/g,'<br>') : ''}
+
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Recent Invoices</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Client</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Amount</th>
+                            <th>Actions</th>
+                        </tr>
+                        </thead>
+                        <tbody id="dashboard-invoices-body">
+                        <tr><td colspan="6" class="empty-cell">No invoices yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- CREATE INVOICE VIEW -->
+        <section id="view-create-invoice" class="view">
+            <div id="invoice-form-message"></div>
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Create Invoice</h2>
+                </div>
+                <form id="invoice-form">
+                    <div class="form-grid-2">
+                        <div>
+                            <label class="form-label">Client *</label>
+                            <select id="invoice-client-select" class="form-input" required></select>
+                        </div>
+                        <div>
+                            <label class="form-label">Billing Address</label>
+                            <textarea id="invoice-billing-address" class="form-input" rows="3"
+                                      placeholder="Street, City, State, PIN"></textarea>
                         </div>
                     </div>
+
+                    <div class="form-grid-2">
+                        <div>
+                            <label class="form-label">Invoice Date *</label>
+                            <input type="date" id="invoice-date" class="form-input" required>
+                        </div>
+                        <div>
+                            <label class="form-label">Due Date *</label>
+                            <input type="date" id="invoice-due-date" class="form-input" required>
+                        </div>
+                    </div>
+
+                    <div class="form-grid-2">
+                        <div>
+                            <label class="form-label">Status *</label>
+                            <select id="invoice-status" class="form-input" required>
+                                <option value="Draft">Draft</option>
+                                <option value="Pending" selected>Pending</option>
+                                <option value="Paid">Paid</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label">Notes</label>
+                            <textarea id="invoice-notes" class="form-input" rows="3"
+                                      placeholder="Payment terms, thank you message, etc."></textarea>
+                        </div>
+                    </div>
+
+                    <div class="panel-sub">
+                        <div class="panel-sub-header">
+                            <h3>Items</h3>
+                            <button type="button" id="btn-add-item-row" class="btn btn-secondary btn-sm">
+                                + Add Item
+                            </button>
+                        </div>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Quantity</th>
+                                    <th>Unit Price (₹)</th>
+                                    <th>GST %</th>
+                                    <th>Total (₹)</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody id="invoice-items-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="totals-row">
+                        <div></div>
+                        <div class="totals-box">
+                            <div class="totals-line">
+                                <span>Subtotal</span>
+                                <span id="invoice-subtotal">₹0.00</span>
+                            </div>
+                            <div class="totals-line">
+                                <span>GST Total</span>
+                                <span id="invoice-tax-total">₹0.00</span>
+                            </div>
+                            <div class="totals-line grand">
+                                <span>Grand Total</span>
+                                <span id="invoice-grand-total">₹0.00</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Save Invoice</button>
+                        <button type="button" id="btn-reset-invoice" class="btn btn-secondary">Reset</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- INVOICE PREVIEW + ACTIONS -->
+            <div id="invoice-preview-panel" class="panel hidden">
+                <div class="panel-header">
+                    <h2>Invoice Preview</h2>
+                    <div>
+                        <button id="btn-print-invoice" class="btn btn-secondary btn-sm">Print</button>
+                        <button id="btn-download-pdf" class="btn btn-primary btn-sm">Download PDF</button>
+                    </div>
                 </div>
-                <div>
-                    <div class="meta-field">
-                        <div class="meta-label">Invoice Date</div>
-                        <div class="meta-value">${formatDate(inv.invoice_date)}</div>
-                    </div>
-                    <div class="meta-field">
-                        <div class="meta-label">Due Date</div>
-                        <div class="meta-value">${formatDate(inv.due_date)}</div>
-                    </div>
+                <div id="invoice-preview" class="invoice-preview"></div>
+            </div>
+        </section>
+
+        <!-- MANAGE CLIENTS VIEW -->
+        <section id="view-clients" class="view">
+            <div id="clients-message"></div>
+            <div class="panel">
+                <div class="panel-header"><h2>Manage Clients</h2></div>
+                <form id="client-form" class="form-inline">
+                    <input type="text" id="client-name" class="form-input" placeholder="Client name *" required>
+                    <input type="email" id="client-email" class="form-input" placeholder="Email (optional)">
+                    <input type="text" id="client-address" class="form-input" placeholder="Address (optional)">
+                    <button type="submit" class="btn btn-primary">Add Client</button>
+                </form>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Address</th>
+                        </tr>
+                        </thead>
+                        <tbody id="clients-table-body">
+                        <tr><td colspan="3" class="empty-cell">No clients yet.</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
-            <div style="margin-bottom:32px;">
-                <table>
-                    <thead>
-                    <tr>
-                        <th>Description</th>
-                        <th style="text-align:center;">Quantity</th>
-                        <th style="text-align:right;">Unit Price</th>
-                        <th style="text-align:center;">GST %</th>
-                        <th style="text-align:right;">Amount</th>
-                    </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 300px;gap:48px;margin-bottom:32px;">
-                <div>
-                    ${inv.notes ? `
-                        <div class="notes-section">
-                            <div class="notes-title">Notes</div>
-                            <div class="notes-content">${inv.notes}</div>
-                        </div>` : ''}
-                </div>
-                <div class="totals-box">
-                    <div class="total-row">
-                        <span>Subtotal:</span>
-                        <span>${formatCurrency(inv.subtotal)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>GST:</span>
-                        <span>${formatCurrency(inv.tax_total)}</span>
-                    </div>
-                    <div class="total-row grand">
-                        <span>Grand Total:</span>
-                        <span>${formatCurrency(inv.grand_total)}</span>
-                    </div>
+        </section>
+
+        <!-- MANAGE ITEMS VIEW -->
+        <section id="view-items" class="view">
+            <div id="items-message"></div>
+            <div class="panel">
+                <div class="panel-header"><h2>Manage Items</h2></div>
+                <form id="item-form" class="form-inline">
+                    <input type="text" id="item-name" class="form-input" placeholder="Item name *" required>
+                    <input type="number" id="item-price" class="form-input" placeholder="Unit price *" min="0" step="0.01" required>
+                    <input type="number" id="item-gst" class="form-input" placeholder="GST %" min="0" max="100" step="0.01" required>
+                    <button type="submit" class="btn btn-primary">Add Item</button>
+                </form>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Unit Price (₹)</th>
+                            <th>GST %</th>
+                        </tr>
+                        </thead>
+                        <tbody id="items-table-body">
+                        <tr><td colspan="3" class="empty-cell">No items yet.</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
-            <div style="border-top:1px solid var(--border-color);padding-top:24px;text-align:center;
-                        color:var(--text-secondary);font-size:12px;">
-                Thank you for your business!
-            </div>`;
-    }
+        </section>
+    </main>
+</div>
 
-    document.getElementById('btn-back-details').addEventListener('click',()=>Views.show('dashboard'));
-    document.getElementById('btn-print').addEventListener('click',()=>{ setTimeout(()=>window.print(),100); });
-
-    // Download button (assumes you added <button id="btn-download"> in header)
-    const downloadBtn = document.getElementById('btn-download');
-    if (downloadBtn){
-        downloadBtn.addEventListener('click',()=>{
-            if (!currentInvoiceId) return;
-            window.location.href = `/api/invoices/${currentInvoiceId}/download`;
-        });
-    }
-
-    function openDeleteModal(id){
-        currentInvoiceId = id;
-        document.getElementById('confirm-modal').style.display = 'flex';
-    }
-    window.openDeleteModal = openDeleteModal;
-
-    document.getElementById('modal-cancel').addEventListener('click',()=>{
-        document.getElementById('confirm-modal').style.display = 'none';
-        currentInvoiceId = null;
-    });
-
-    document.getElementById('modal-confirm').addEventListener('click',async ()=>{
-        if (!currentInvoiceId) return;
-        try{
-            const res = await fetch(`${API_BASE}/api/invoices/${currentInvoiceId}`,{method:'DELETE'});
-            const data = await res.json();
-            if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
-            document.getElementById('confirm-modal').style.display = 'none';
-            currentInvoiceId = null;
-            await refreshDashboard();
-            await loadAllInvoices();
-        }catch(err){
-            alert(`Failed to delete invoice: ${err.message}`);
-        }
-    });
-
-    // ---------- INIT ----------
-    document.addEventListener('DOMContentLoaded',async ()=>{
-        const today = new Date().toISOString().split('T')[0];
-        document.querySelector('[name="invoice_date"]').value = today;
-        await loadClients();
-        addLineItem();
-        await refreshDashboard();
-    });
-</script>
+<script src="static/app.js"></script>
 </body>
 </html>
-v
